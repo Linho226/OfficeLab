@@ -1,0 +1,2 @@
+"""Simulation domain for OfficeLab."""
+

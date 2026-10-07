@@ -1,0 +1,75 @@
+{
+  "schema_version": "1.0",
+  "scenario": {
+    "code": "FILES-001",
+    "version": 1,
+    "title": "Organiser des fichiers et dossiers",
+    "runtime": "file_manager",
+    "locale": "fr",
+    "instructions": [
+      "Dans Documents, créez un dossier nommé Formation.",
+      "Créez un fichier nommé exercice.txt, renommez-le rapport.txt, puis placez-le dans Formation."
+    ],
+    "initial_state": {
+      "root_id": "root",
+      "items": [
+        {"id": "root", "parent_id": null, "name": "Accueil", "kind": "folder"},
+        {"id": "documents", "parent_id": "root", "name": "Documents", "kind": "folder"},
+        {"id": "images", "parent_id": "root", "name": "Images", "kind": "folder"},
+        {"id": "downloads", "parent_id": "root", "name": "Téléchargements", "kind": "folder"}
+      ]
+    },
+    "allowed_actions": [
+      "folder.created",
+      "file.created",
+      "item.renamed",
+      "item.moved"
+    ],
+    "criteria": [
+      {
+        "code": "formation_exists",
+        "operator": "item_at_path",
+        "points": 25,
+        "params": {"path": ["Documents", "Formation"], "kind": "folder"},
+        "feedback": "Créez le dossier Formation dans Documents."
+      },
+      {
+        "code": "report_exists",
+        "operator": "item_at_path",
+        "points": 25,
+        "params": {"path": ["Documents", "Formation", "rapport.txt"], "kind": "file"},
+        "feedback": "Le fichier doit être nommé rapport.txt."
+      },
+      {
+        "code": "report_location",
+        "operator": "item_at_path",
+        "points": 35,
+        "params": {"path": ["Documents", "Formation", "rapport.txt"], "kind": "file"},
+        "feedback": "Placez rapport.txt dans le dossier Formation."
+      },
+      {
+        "code": "documents_clean",
+        "operator": "children_exactly",
+        "points": 10,
+        "params": {"path": ["Documents"], "names": ["Formation"]},
+        "feedback": "Retirez les éléments supplémentaires du dossier Documents."
+      },
+      {
+        "code": "submission",
+        "operator": "always",
+        "points": 5,
+        "params": {},
+        "feedback": "Validez explicitement la tentative."
+      }
+    ],
+    "hints": [
+      "Commencez par ouvrir le dossier Documents.",
+      "Utilisez l'action Nouveau dossier et nommez-le Formation.",
+      "Vérifiez le nom et l'emplacement du fichier demandé."
+    ],
+    "completion": {
+      "minimum_score": 80,
+      "required_criteria": ["report_location"]
+    }
+  }
+}
