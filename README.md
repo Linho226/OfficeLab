@@ -60,6 +60,11 @@ python manage.py test
 
 Le Lot 0 est en cours : le dépôt contient un moteur de gestion de fichiers,
 une API authentifiée, des checkpoints, un évaluateur et une interface Vue.
+L'explorateur interactif propose trois missions : créer une arborescence,
+renommer et ranger des fichiers. « Vérifier mon travail » permet de corriger
+sans fermer la tentative ; « Terminer la mission » enregistre le résultat final.
+La barre latérale, les vues vignettes/liste, le clic droit, le glisser-déposer
+et le couper/coller sont implémentés. Leur recette visuelle reste à effectuer.
 L'interface retrouve les tentatives en cours après connexion ou rechargement
 et permet de les reprendre avec leurs fichiers et leurs indices déjà consultés.
 Les indices progressifs sont sauvegardés sans pénalité de score. Le second
@@ -67,7 +72,8 @@ simulateur et la recette débutants restent à réaliser avant la validation du 
 
 Le scénario `FILES-001` est livré en version 2. Son barème distingue le nom du
 fichier de son emplacement. `python manage.py seed_prototype` installe cette
-version sans modifier la version 1 ni les tentatives qui y sont liées.
+version et les missions `FILES-101`, `FILES-102`, `FILES-103`, sans modifier la
+version 1 ni les tentatives qui y sont liées.
 L'API choisit la dernière version publiée pour les nouvelles tentatives.
 
 Les scénarios sont validés à l'enregistrement. Une version publiée reste
@@ -78,3 +84,6 @@ utilisez `save()` ou `objects.create()` pour passer par la validation.
 
 Voir [le suivi du prototype](docs/prototype-simulation.md) pour le périmètre
 prévu et les éléments restant à valider.
+
+La suite suit l'ordre [explorateur → navigateur → messagerie](docs/parcours-fichiers-navigateur-messagerie.md).
+Le navigateur et la messagerie ne sont pas encore implémentés.

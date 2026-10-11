@@ -8,7 +8,65 @@ from rest_framework import serializers
 from simulations.api.serializers import RecordEventSerializer
 from simulations.domain import InvalidAction
 from simulations.models import Attempt, Scenario, ScenarioVersion
-from simulations.services import record_event, request_hint, start_attempt, submit_attempt
+from simulations.services import check_attempt, restart_attempt, record_event, request_hint, start_attempt, submit_attempt
+from simulations.catalog import TRAINING_CODES
+
+
+class ScenarioListView(APIView):
+    def get(self, request):
+        versions = ScenarioVersion.objects.filter(
+            scenario__is_active=True, scenario__code__in=TRAINING_CODES,
+            status=ScenarioVersion.Status.PUBLISHED,
+        ).select_related("scenario").order_by("scenario__code", "-version")
+        results, seen = [], set()
+        for version in versions:
+            code = version.scenario.code
+            if code in seen:
+                continue
+            seen.add(code)
+            definition = version.definition["scenario"]
+            attempts = Attempt.objects.filter(user=request.user, scenario_version__scenario=version.scenario)
+            saved = attempts.filter(status=Attempt.Status.IN_PROGRESS).order_by("-updated_at").first()
+            passed = attempts.filter(status=Attempt.Status.PASSED).order_by("-score").first()
+            results.append({
+                "code": code, "title": definition["title"], "version": version.version,
+                "instructions": definition["instructions"], "order": TRAINING_CODES.index(code) + 1,
+                "passed": passed is not None, "best_score": passed.score if passed else None,
+                "resume_id": str(saved.id) if saved else None,
+            })
+        return Response(results)
+
+
+class SavedAttemptListView(APIView):
+    def get(self, request):
+        attempts = Attempt.objects.filter(user=request.user, status=Attempt.Status.IN_PROGRESS).select_related(
+            "scenario_version__scenario"
+        ).order_by("-updated_at")
+        return Response([{
+            "id": str(attempt.id), "updated_at": attempt.updated_at,
+            "code": attempt.scenario_version.scenario.code,
+            "title": attempt.scenario_version.definition["scenario"]["title"],
+            "version": attempt.scenario_version.version,
+        } for attempt in attempts])
+
+
+class AttemptCheckView(APIView):
+    def post(self, request, attempt_id):
+        attempt = _owned_attempt(request.user, attempt_id)
+        try:
+            return Response(check_attempt(attempt.id))
+        except InvalidAction as error:
+            raise ValidationError(str(error)) from error
+
+
+class AttemptRestartView(APIView):
+    def post(self, request, attempt_id):
+        attempt = _owned_attempt(request.user, attempt_id)
+        try:
+            restarted, checkpoint = restart_attempt(attempt.id)
+        except InvalidAction as error:
+            raise ValidationError(str(error)) from error
+        return Response(_attempt_payload(restarted, checkpoint), status=status.HTTP_201_CREATED)
 
 
 class ScenarioDetailView(APIView):
@@ -161,6 +219,7 @@ def _attempt_payload(attempt, checkpoint):
             "title": definition["title"],
             "instructions": definition["instructions"],
             "initial_state": definition["initial_state"],
+            "allowed_actions": definition["allowed_actions"],
         },
         "status": attempt.status,
         "score": attempt.score,

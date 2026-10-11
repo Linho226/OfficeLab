@@ -5,10 +5,24 @@ export type FileItem = {
   kind: 'folder' | 'file'
 }
 
+export type TrashEntry = {
+  items: FileItem[]
+  original_parent_id: string
+}
+
+export type HistorySnapshot = {
+  items: FileItem[]
+  trash?: Record<string, TrashEntry>
+  observed_actions: string[]
+}
+
 export type Checkpoint = {
   items: FileItem[]
+  trash?: Record<string, TrashEntry>
   processed_event_ids: string[]
   observed_actions: string[]
+  undo_stack?: HistorySnapshot[]
+  redo_stack?: HistorySnapshot[]
 }
 
 export type Scenario = {
@@ -26,7 +40,7 @@ export type Scenario = {
 
 export type Attempt = {
   id: string
-  scenario: Pick<Scenario, 'code' | 'version' | 'title' | 'instructions' | 'initial_state'>
+  scenario: Pick<Scenario, 'code' | 'version' | 'title' | 'instructions' | 'initial_state' | 'allowed_actions'>
   status: string
   score: number | null
   checkpoint: Checkpoint
@@ -35,7 +49,23 @@ export type Attempt = {
   evaluation: Evaluation | null
 }
 
-export type AttemptSummary = { id: string; updated_at: string; version: number }
+export type AttemptSummary = { id: string; updated_at: string; version: number; code: string; title: string }
+
+export type Mission = {
+  code: string
+  title: string
+  version: number
+  instructions: string[]
+  order: number
+  passed: boolean
+  best_score: number | null
+  resume_id: string | null
+}
+
+export class ApiError extends Error {
+  status: number
+  constructor(message: string, status: number) { super(message); this.status = status }
+}
 
 export type Evaluation = {
   attempt_id: string
@@ -64,13 +94,15 @@ export async function api<T>(path: string, options: RequestInit = {}): Promise<T
   })
   if (response.status === 204) return undefined as T
 
-  const payload = await response.json()
+  let payload
+  try { payload = await response.json() }
+  catch { throw new ApiError('Le serveur ne répond pas correctement. Réessayez dans un instant.', response.status) }
   if (!response.ok) {
     const detail =
       typeof payload.detail === 'string'
         ? payload.detail
         : Object.values(payload).flat().join(' ')
-    throw new Error(detail || 'Une erreur inattendue est survenue.')
+    throw new ApiError(detail || 'Une erreur inattendue est survenue.', response.status)
   }
   return payload as T
 }

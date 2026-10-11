@@ -1,0 +1,124 @@
+{
+  "schema_version": "1.0",
+  "scenario": {
+    "code": "FILES-102",
+    "version": 1,
+    "title": "Donner des noms clairs",
+    "runtime": "file_manager",
+    "locale": "fr",
+    "instructions": [
+      "Dans Documents, renommez document1.txt en compte-rendu.txt.",
+      "Renommez notes.txt en planning.txt, en conservant les deux fichiers dans Documents."
+    ],
+    "initial_state": {
+      "root_id": "root",
+      "items": [
+        {
+          "id": "root",
+          "parent_id": null,
+          "name": "Accueil",
+          "kind": "folder"
+        },
+        {
+          "id": "desktop",
+          "parent_id": "root",
+          "name": "Bureau",
+          "kind": "folder"
+        },
+        {
+          "id": "documents",
+          "parent_id": "root",
+          "name": "Documents",
+          "kind": "folder"
+        },
+        {
+          "id": "images",
+          "parent_id": "root",
+          "name": "Images",
+          "kind": "folder"
+        },
+        {
+          "id": "downloads",
+          "parent_id": "root",
+          "name": "Téléchargements",
+          "kind": "folder"
+        },
+        {
+          "id": "document1",
+          "name": "document1.txt",
+          "parent_id": "documents",
+          "kind": "file"
+        },
+        {
+          "id": "notes",
+          "name": "notes.txt",
+          "parent_id": "documents",
+          "kind": "file"
+        }
+      ]
+    },
+    "allowed_actions": [
+      "folder.created",
+      "file.created",
+      "item.renamed",
+      "item.moved",
+      "item.deleted"
+    ],
+    "criteria": [
+      {
+        "code": "compte_rendu",
+        "operator": "item_at_path",
+        "points": 40,
+        "params": {
+          "path": [
+            "Documents",
+            "compte-rendu.txt"
+          ],
+          "kind": "file"
+        },
+        "feedback": "Renommez document1.txt en compte-rendu.txt dans Documents."
+      },
+      {
+        "code": "planning",
+        "operator": "item_at_path",
+        "points": 40,
+        "params": {
+          "path": [
+            "Documents",
+            "planning.txt"
+          ],
+          "kind": "file"
+        },
+        "feedback": "Renommez notes.txt en planning.txt dans Documents."
+      },
+      {
+        "code": "noms_exacts",
+        "operator": "children_exactly",
+        "points": 20,
+        "params": {
+          "path": [
+            "Documents"
+          ],
+          "names": [
+            "compte-rendu.txt",
+            "planning.txt"
+          ]
+        },
+        "feedback": "Documents doit contenir uniquement compte-rendu.txt et planning.txt."
+      }
+    ],
+    "hints": [
+      "Ouvrez Documents puis sélectionnez document1.txt.",
+      "Cliquez sur Renommer, ou appuyez sur F2, puis saisissez compte-rendu.txt.",
+      "Procédez de la même façon pour notes.txt : son nouveau nom est planning.txt."
+    ],
+    "completion": {
+      "minimum_score": 100,
+      "required_criteria": [
+        "compte_rendu",
+        "planning",
+        "noms_exacts"
+      ]
+    }
+  }
+}

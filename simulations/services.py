@@ -90,6 +90,36 @@ def record_event(
 
 
 @transaction.atomic
+def check_attempt(attempt_id):
+    """Evaluate a snapshot without closing the attempt or recording a grade."""
+    attempt = Attempt.objects.select_for_update().select_related("scenario_version").get(pk=attempt_id)
+    if attempt.status != Attempt.Status.IN_PROGRESS:
+        raise InvalidAction("Cette tentative est déjà terminée.")
+    engine, sequence = _restore_engine(attempt)
+    result = evaluate(engine.scenario, engine.state, engine.observed_actions)
+    return {
+        "attempt_id": str(attempt.id), "score": result.score, "passed": result.passed,
+        "criteria": [asdict(item) for item in result.criteria], "sequence": sequence,
+    }
+
+
+@transaction.atomic
+def restart_attempt(attempt_id):
+    attempt = Attempt.objects.select_for_update().select_related("scenario_version__scenario").get(pk=attempt_id)
+    scenario = attempt.scenario_version.scenario
+    version = scenario.versions.filter(status=ScenarioVersion.Status.PUBLISHED).order_by("-version").first()
+    if not scenario.is_active or version is None:
+        raise InvalidAction("Cette mission n'est plus disponible pour une nouvelle tentative.")
+    if attempt.status == Attempt.Status.ABANDONED:
+        raise InvalidAction("Cette tentative a déjà été recommencée. Retrouvez-la dans vos exercices.")
+    new_attempt, checkpoint = start_attempt(version, user=attempt.user)
+    if attempt.status == Attempt.Status.IN_PROGRESS:
+        attempt.status = Attempt.Status.ABANDONED
+        attempt.save(update_fields=["status", "updated_at"])
+    return new_attempt, checkpoint
+
+
+@transaction.atomic
 def submit_attempt(attempt_id) -> EvaluationResult:
     attempt = (
         Attempt.objects.select_for_update()
@@ -164,9 +194,12 @@ def _restore_engine(attempt: Attempt) -> tuple[SimulationEngine, int]:
             {
                 "root_id": scenario.initial_state["root_id"],
                 "items": checkpoint["items"],
+                "trash": checkpoint.get("trash", {}),
             }
         ),
         processed_event_ids=set(checkpoint.get("processed_event_ids", [])),
         observed_actions=set(checkpoint.get("observed_actions", [])),
+        undo_stack=checkpoint.get("undo_stack", []),
+        redo_stack=checkpoint.get("redo_stack", []),
     )
     return engine, latest.sequence

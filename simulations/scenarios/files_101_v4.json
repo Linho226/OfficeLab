@@ -1,0 +1,118 @@
+{
+  "schema_version": "1.0",
+  "scenario": {
+    "code": "FILES-101",
+    "version": 4,
+    "title": "Créer une arborescence",
+    "runtime": "file_manager",
+    "locale": "fr",
+    "instructions": [
+      "Dans Documents, créez un dossier Formation.",
+      "Dans Formation, créez deux dossiers : Cours et Exercices."
+    ],
+    "initial_state": {
+      "root_id": "root",
+      "items": [
+        {
+          "id": "root",
+          "parent_id": null,
+          "name": "Accueil",
+          "kind": "folder"
+        },
+        {
+          "id": "desktop",
+          "parent_id": "root",
+          "name": "Bureau",
+          "kind": "folder"
+        },
+        {
+          "id": "documents",
+          "parent_id": "root",
+          "name": "Documents",
+          "kind": "folder"
+        },
+        {
+          "id": "images",
+          "parent_id": "root",
+          "name": "Images",
+          "kind": "folder"
+        },
+        {
+          "id": "downloads",
+          "parent_id": "root",
+          "name": "Téléchargements",
+          "kind": "folder"
+        }
+      ]
+    },
+    "allowed_actions": [
+      "folder.created",
+      "file.created",
+      "item.renamed",
+      "item.moved",
+      "item.deleted",
+      "item.copied",
+      "item.trashed",
+      "item.restored",
+      "trash.emptied",
+      "history.undo",
+      "history.redo"
+    ],
+    "criteria": [
+      {
+        "code": "formation",
+        "operator": "item_at_path",
+        "points": 40,
+        "params": {
+          "path": [
+            "Documents",
+            "Formation"
+          ],
+          "kind": "folder"
+        },
+        "feedback": "Créez Formation dans Documents."
+      },
+      {
+        "code": "cours",
+        "operator": "item_at_path",
+        "points": 30,
+        "params": {
+          "path": [
+            "Documents",
+            "Formation",
+            "Cours"
+          ],
+          "kind": "folder"
+        },
+        "feedback": "Créez Cours à l’intérieur de Formation."
+      },
+      {
+        "code": "exercices",
+        "operator": "item_at_path",
+        "points": 30,
+        "params": {
+          "path": [
+            "Documents",
+            "Formation",
+            "Exercices"
+          ],
+          "kind": "folder"
+        },
+        "feedback": "Créez Exercices à l’intérieur de Formation."
+      }
+    ],
+    "hints": [
+      "Ouvrez Documents dans la barre latérale.",
+      "Cliquez sur Nouveau dossier et nommez-le Formation.",
+      "Ouvrez Formation puis créez Cours et Exercices à l’intérieur."
+    ],
+    "completion": {
+      "minimum_score": 100,
+      "required_criteria": [
+        "formation",
+        "cours",
+        "exercices"
+      ]
+    }
+  }
+}

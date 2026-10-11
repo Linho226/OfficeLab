@@ -16,13 +16,13 @@ class SeedPrototypeCommandTests(TestCase):
         call_command("seed_prototype", stdout=output)
         call_command("seed_prototype", stdout=output)
 
-        self.assertEqual(Scenario.objects.count(), 1)
-        self.assertEqual(ScenarioVersion.objects.count(), 1)
+        self.assertEqual(Scenario.objects.count(), 4)
+        self.assertEqual(ScenarioVersion.objects.count(), 8)
         self.assertEqual(
-            ScenarioVersion.objects.get().status,
+            ScenarioVersion.objects.filter(scenario__code="FILES-001").order_by("-version").first().status,
             ScenarioVersion.Status.PUBLISHED,
         )
-        self.assertEqual(ScenarioVersion.objects.get().version, 2)
+        self.assertEqual(ScenarioVersion.objects.filter(scenario__code="FILES-001").order_by("-version").first().version, 3)
 
     def test_seeding_v2_preserves_v1_and_existing_attempts(self):
         definition = json.loads((
@@ -39,4 +39,4 @@ class SeedPrototypeCommandTests(TestCase):
         attempt.refresh_from_db()
         self.assertEqual(version.definition, definition)
         self.assertEqual(attempt.scenario_version_id, version.pk)
-        self.assertEqual(ScenarioVersion.objects.count(), 2)
+        self.assertEqual(ScenarioVersion.objects.count(), 9)

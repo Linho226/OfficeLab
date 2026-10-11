@@ -1,0 +1,121 @@
+{
+  "schema_version": "1.0",
+  "scenario": {
+    "code": "FILES-103",
+    "version": 1,
+    "title": "Ranger les fichiers",
+    "runtime": "file_manager",
+    "locale": "fr",
+    "instructions": [
+      "Déplacez photo.jpg du Bureau vers Images.",
+      "Déplacez rapport.txt du Bureau vers Documents. Le Bureau doit être vide à la fin."
+    ],
+    "initial_state": {
+      "root_id": "root",
+      "items": [
+        {
+          "id": "root",
+          "parent_id": null,
+          "name": "Accueil",
+          "kind": "folder"
+        },
+        {
+          "id": "desktop",
+          "parent_id": "root",
+          "name": "Bureau",
+          "kind": "folder"
+        },
+        {
+          "id": "documents",
+          "parent_id": "root",
+          "name": "Documents",
+          "kind": "folder"
+        },
+        {
+          "id": "images",
+          "parent_id": "root",
+          "name": "Images",
+          "kind": "folder"
+        },
+        {
+          "id": "downloads",
+          "parent_id": "root",
+          "name": "Téléchargements",
+          "kind": "folder"
+        },
+        {
+          "id": "photo",
+          "name": "photo.jpg",
+          "parent_id": "desktop",
+          "kind": "file"
+        },
+        {
+          "id": "report",
+          "name": "rapport.txt",
+          "parent_id": "desktop",
+          "kind": "file"
+        }
+      ]
+    },
+    "allowed_actions": [
+      "folder.created",
+      "file.created",
+      "item.renamed",
+      "item.moved",
+      "item.deleted"
+    ],
+    "criteria": [
+      {
+        "code": "photo",
+        "operator": "item_at_path",
+        "points": 40,
+        "params": {
+          "path": [
+            "Images",
+            "photo.jpg"
+          ],
+          "kind": "file"
+        },
+        "feedback": "Placez photo.jpg dans Images."
+      },
+      {
+        "code": "rapport",
+        "operator": "item_at_path",
+        "points": 40,
+        "params": {
+          "path": [
+            "Documents",
+            "rapport.txt"
+          ],
+          "kind": "file"
+        },
+        "feedback": "Placez rapport.txt dans Documents."
+      },
+      {
+        "code": "bureau_vide",
+        "operator": "children_exactly",
+        "points": 20,
+        "params": {
+          "path": [
+            "Bureau"
+          ],
+          "names": []
+        },
+        "feedback": "Déplacez les fichiers : aucun élément ne doit rester sur le Bureau."
+      }
+    ],
+    "hints": [
+      "Ouvrez Bureau dans la barre latérale.",
+      "Faites glisser photo.jpg sur Images dans la barre latérale.",
+      "Pour rapport.txt, vous pouvez aussi utiliser Couper, ouvrir Documents, puis Coller."
+    ],
+    "completion": {
+      "minimum_score": 100,
+      "required_criteria": [
+        "photo",
+        "rapport",
+        "bureau_vide"
+      ]
+    }
+  }
+}

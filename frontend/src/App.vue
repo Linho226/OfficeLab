@@ -1,392 +1,196 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
-import { api, newEventId, type Attempt, type AttemptSummary, type Evaluation, type FileItem, type Scenario } from './api'
+import { computed, nextTick, onMounted, ref } from 'vue'
+import { api, ApiError, newEventId, type Attempt, type AttemptSummary, type Evaluation, type Mission } from './api'
+import FileExplorer from './components/FileExplorer.vue'
+import LabIcon from './components/LabIcon.vue'
 
 const authenticated = ref(false)
 const username = ref('')
 const password = ref('')
-const scenario = ref<Scenario | null>(null)
+const displayName = ref('')
+const loading = ref(true)
+const busy = ref(false)
+const error = ref('')
+const message = ref('')
+const missions = ref<Mission[]>([])
+const saved = ref<AttemptSummary[]>([])
 const attempt = ref<Attempt | null>(null)
 const evaluation = ref<Evaluation | null>(null)
-const currentFolderId = ref('root')
-const selectedId = ref<string | null>(null)
-const action = ref<'folder' | 'file' | 'rename' | 'move'>('folder')
-const value = ref('')
-const destinationId = ref('')
-const error = ref('')
-const busy = ref(false)
-const loading = ref(true)
-const savedAttempts = ref<AttemptSummary[]>([])
 const pendingHintId = ref<string | null>(null)
+const pendingEvent = ref<{ client_event_id: string; event_type: string; payload: Record<string, string> } | null>(null)
+const restartDialog = ref<HTMLDialogElement | null>(null)
+const feedback = ref<HTMLElement | null>(null)
+const currentMission = computed(() => missions.value.find(mission => mission.code === attempt.value?.scenario.code))
+const completed = computed(() => missions.value.filter(mission => mission.passed).length)
+const totalPoints = computed(() => missions.value.reduce((total, mission) => total + (mission.best_score ?? 0), 0))
+const nextMission = computed(() => {
+  const index = missions.value.findIndex(mission => mission.code === attempt.value?.scenario.code)
+  return index >= 0 ? missions.value[index + 1] : undefined
+})
+const editable = computed(() => attempt.value?.status === 'in_progress')
 
-const items = computed(() => attempt.value?.checkpoint.items ?? [])
-const currentFolder = computed(() => items.value.find((item) => item.id === currentFolderId.value))
-const children = computed(() =>
-  items.value
-    .filter((item) => item.parent_id === currentFolderId.value)
-    .sort((left, right) => {
-      if (left.kind !== right.kind) return left.kind === 'folder' ? -1 : 1
-      return left.name.localeCompare(right.name, 'fr')
-    }),
-)
-const selectedItem = computed(() => items.value.find((item) => item.id === selectedId.value))
-const folders = computed(() => items.value.filter((item) => item.kind === 'folder'))
-const canGoUp = computed(() => currentFolder.value?.parent_id !== null)
-
-onMounted(checkSession)
-
-async function checkSession() {
-  try {
-    const session = await api<{ authenticated: boolean }>('/api/v1/auth/session/')
-    authenticated.value = session.authenticated
-    if (authenticated.value) await loadScenario()
-  } catch (reason) {
-    showError(reason)
-  } finally {
-    loading.value = false
-  }
+async function run(operation: () => Promise<void>) {
+  if (busy.value) return false
+  busy.value = true; error.value = ''
+  try { await operation(); return true }
+  catch (reason) { error.value = reason instanceof Error ? reason.message : 'Une erreur est survenue. Réessayez.'; return false }
+  finally { busy.value = false }
 }
-
+async function loadHome() {
+  const [catalog, attempts] = await Promise.all([
+    api<Mission[]>('/api/v1/scenarios/'), api<AttemptSummary[]>('/api/v1/attempts/'),
+  ])
+  missions.value = catalog; saved.value = attempts
+}
+onMounted(async () => {
+  await run(async () => {
+    const session = await api<{ authenticated: boolean; user?: { username: string } }>('/api/v1/auth/session/')
+    authenticated.value = session.authenticated
+    displayName.value = session.user?.username ?? ''
+    if (authenticated.value) await loadHome()
+  })
+  loading.value = false
+})
 async function signIn() {
   await run(async () => {
-    await api('/api/v1/auth/login/', {
-      method: 'POST',
-      body: JSON.stringify({ username: username.value, password: password.value }),
+    const session = await api<{ user: { username: string } }>('/api/v1/auth/login/', {
+      method: 'POST', body: JSON.stringify({ username: username.value, password: password.value }),
     })
-    authenticated.value = true
-    password.value = ''
-    await loadScenario()
+    authenticated.value = true; displayName.value = session.user.username; password.value = ''
+    await loadHome()
   })
 }
-
 async function signOut() {
   await run(async () => {
     await api('/api/v1/auth/logout/', { method: 'POST', body: '{}' })
-    authenticated.value = false
-    scenario.value = null
-    attempt.value = null
-    evaluation.value = null
-    savedAttempts.value = []
-    pendingHintId.value = null
+    authenticated.value = false; attempt.value = null; evaluation.value = null
+    missions.value = []; saved.value = []; pendingEvent.value = null; pendingHintId.value = null; message.value = ''
   })
 }
-
-async function loadScenario() {
-  const [definition, saved] = await Promise.all([
-    api<Scenario>('/api/v1/scenarios/FILES-001/'),
-    api<AttemptSummary[]>('/api/v1/scenarios/FILES-001/attempts/'),
-  ])
-  scenario.value = definition
-  savedAttempts.value = saved
+function setAttempt(value: Attempt) {
+  attempt.value = value; evaluation.value = value.evaluation
+  pendingEvent.value = null; pendingHintId.value = null; message.value = ''
 }
-
-async function startAttempt() {
+async function chooseMission(mission: Mission) {
+  if (attempt.value?.scenario.code === mission.code) return
   await run(async () => {
-    attempt.value = await api<Attempt>('/api/v1/scenarios/FILES-001/attempts/', {
-      method: 'POST',
-      body: '{}',
-    })
-    resetWorkspace()
+    const value = mission.resume_id
+      ? await api<Attempt>(`/api/v1/attempts/${mission.resume_id}/`)
+      : await api<Attempt>(`/api/v1/scenarios/${mission.code}/attempts/`, { method: 'POST', body: '{}' })
+    setAttempt(value)
+    await loadHome()
   })
 }
-
-function resetWorkspace() {
-  currentFolderId.value = attempt.value?.scenario.initial_state.root_id ?? 'root'
-  selectedId.value = null
-  evaluation.value = null
-  pendingHintId.value = null
-  value.value = ''
-  destinationId.value = ''
-  action.value = 'folder'
+async function resume(id: string) {
+  await run(async () => { setAttempt(await api<Attempt>(`/api/v1/attempts/${id}/`)) })
 }
-
-async function resumeAttempt(id: string) {
-  await run(async () => {
-    attempt.value = await api<Attempt>(`/api/v1/attempts/${id}/`)
-    resetWorkspace()
-    evaluation.value = attempt.value.evaluation
+async function home() {
+  await run(async () => { await loadHome(); attempt.value = null; evaluation.value = null; pendingEvent.value = null; message.value = '' })
+}
+async function perform(type: string, payload: Record<string, string>) {
+  if (!attempt.value || !editable.value) return false
+  if (pendingEvent.value) {
+    error.value = 'Une action attend confirmation. Utilisez « Réessayer l’action » avant de continuer.'
+    return false
+  }
+  pendingEvent.value = { client_event_id: newEventId(), event_type: type, payload }
+  return sendPendingEvent()
+}
+async function sendPendingEvent() {
+  if (!attempt.value || !pendingEvent.value) return false
+  return run(async () => {
+    try {
+      const response = await api<{ checkpoint: Attempt['checkpoint'] }>(`/api/v1/attempts/${attempt.value!.id}/events/`, {
+        method: 'POST', body: JSON.stringify(pendingEvent.value),
+      })
+      attempt.value!.checkpoint = response.checkpoint
+      pendingEvent.value = null; evaluation.value = null; message.value = 'Modification sauvegardée'
+    } catch (reason) {
+      if (reason instanceof ApiError && reason.status >= 400 && reason.status < 500) pendingEvent.value = null
+      throw reason
+    }
   })
 }
-
-async function returnToExercises() {
-  await run(async () => {
-    await loadScenario()
-    attempt.value = null
-    evaluation.value = null
-    pendingHintId.value = null
-  })
-}
-
 async function askHint() {
   if (!attempt.value) return
   await run(async () => {
     pendingHintId.value ??= newEventId()
-    const response = await api<Pick<Attempt, 'hints' | 'hints_count'>>(
-      `/api/v1/attempts/${attempt.value!.id}/hint/`, {
+    try {
+      const result = await api<Pick<Attempt, 'hints' | 'hints_count'>>(`/api/v1/attempts/${attempt.value!.id}/hint/`, {
         method: 'POST', body: JSON.stringify({ client_event_id: pendingHintId.value }),
-      },
-    )
-    attempt.value!.hints = response.hints
-    attempt.value!.hints_count = response.hints_count
-    pendingHintId.value = null
+      })
+      attempt.value!.hints = result.hints; attempt.value!.hints_count = result.hints_count
+      pendingHintId.value = null
+    } catch (reason) {
+      if (reason instanceof ApiError && reason.status >= 400 && reason.status < 500) pendingHintId.value = null
+      throw reason
+    }
   })
 }
-
-async function performAction() {
-  if (!attempt.value) return
-  const selected = selectedItem.value
-  let eventType = ''
-  let payload: Record<string, string> = {}
-
-  if (action.value === 'folder' || action.value === 'file') {
-    if (!value.value.trim()) return setError('Saisissez un nom.')
-    eventType = action.value === 'folder' ? 'folder.created' : 'file.created'
-    payload = {
-      item_id: newEventId(),
-      parent_id: currentFolderId.value,
-      name: value.value.trim(),
-    }
-  } else if (action.value === 'rename') {
-    if (!selected || !value.value.trim()) {
-      return setError('Sélectionnez un élément et saisissez son nouveau nom.')
-    }
-    eventType = 'item.renamed'
-    payload = { item_id: selected.id, name: value.value.trim() }
-  } else {
-    if (!selected || !destinationId.value) {
-      return setError('Sélectionnez un élément et un dossier de destination.')
-    }
-    eventType = 'item.moved'
-    payload = { item_id: selected.id, parent_id: destinationId.value }
-  }
-
-  await run(async () => {
-    const response = await api<{ checkpoint: Attempt['checkpoint'] }>(
-      `/api/v1/attempts/${attempt.value!.id}/events/`,
-      {
-        method: 'POST',
-        body: JSON.stringify({
-          client_event_id: newEventId(),
-          event_type: eventType,
-          payload,
-        }),
-      },
-    )
-    attempt.value!.checkpoint = response.checkpoint
-    selectedId.value = null
-    value.value = ''
-    destinationId.value = ''
-  })
-}
-
-async function submitAttempt() {
+async function check() {
   if (!attempt.value) return
   await run(async () => {
-    evaluation.value = await api<Evaluation>(
-      `/api/v1/attempts/${attempt.value!.id}/submit/`,
-      { method: 'POST', body: '{}' },
-    )
-    attempt.value!.status = evaluation.value.passed ? 'passed' : 'failed'
-    attempt.value!.score = evaluation.value.score
+    evaluation.value = await api<Evaluation>(`/api/v1/attempts/${attempt.value!.id}/check/`, { method: 'POST', body: '{}' })
+    await nextTick(); feedback.value?.focus()
   })
 }
-
-function openItem(item: FileItem) {
-  selectedId.value = item.id
-  if (item.kind === 'folder') currentFolderId.value = item.id
+async function finish() {
+  if (!attempt.value) return
+  await run(async () => {
+    const result = await api<Evaluation>(`/api/v1/attempts/${attempt.value!.id}/submit/`, { method: 'POST', body: '{}' })
+    evaluation.value = result
+    attempt.value!.status = result.passed ? 'passed' : 'failed'; attempt.value!.score = result.score
+    await loadHome(); await nextTick(); feedback.value?.focus()
+  })
 }
-
-function goUp() {
-  if (currentFolder.value?.parent_id) {
-    currentFolderId.value = currentFolder.value.parent_id
-    selectedId.value = null
-  }
-}
-
-async function run(operation: () => Promise<void>) {
-  if (busy.value) return
-  busy.value = true
-  error.value = ''
-  try {
-    await operation()
-  } catch (reason) {
-    showError(reason)
-  } finally {
-    busy.value = false
-  }
-}
-
-function setError(message: string) {
-  error.value = message
-}
-
-function showError(reason: unknown) {
-  error.value = reason instanceof Error ? reason.message : 'Une erreur inattendue est survenue.'
+async function restart() {
+  if (!attempt.value) return
+  if (await run(async () => {
+    setAttempt(await api<Attempt>(`/api/v1/attempts/${attempt.value!.id}/restart/`, { method: 'POST', body: '{}' }))
+    await loadHome()
+  })) restartDialog.value?.close()
 }
 </script>
 
 <template>
   <header class="site-header">
-    <a class="brand" href="#main">OfficeLab <span>AI</span></a>
-    <button v-if="authenticated" class="quiet-button" type="button" :disabled="busy" @click="signOut">
-      Se déconnecter
-    </button>
+    <a class="brand" href="#main" @click.prevent="authenticated && !busy ? home() : undefined"><span class="brand-symbol"><LabIcon name="book" :size="23" /></span><span>Office<span class="brand-light">Lab</span><small>APPRENDRE PAR LA PRATIQUE</small></span></a>
+    <span class="header-course">L’atelier numérique <span>/</span> Les essentiels</span>
+    <div v-if="authenticated" class="account"><span class="avatar">{{ displayName.slice(0, 1).toUpperCase() }}</span><span class="account-name">{{ displayName }}</span><button class="icon-button" :disabled="busy" title="Se déconnecter" aria-label="Se déconnecter" @click="signOut"><LabIcon name="logout" /></button></div>
+    <span v-else class="header-course">Un geste à la fois.</span>
   </header>
-
-  <main id="main">
-    <p v-if="loading" role="status">Chargement de votre session…</p>
-    <section v-else-if="!authenticated" class="login-card" aria-labelledby="login-title">
-      <p class="eyebrow">Bienvenue dans le prototype</p>
-      <h1 id="login-title">Apprendre en pratiquant</h1>
-      <p>Connectez-vous avec votre compte de test pour commencer l’exercice.</p>
-      <form @submit.prevent="signIn">
-        <label>
-          Nom d’utilisateur
-          <input v-model="username" autocomplete="username" required />
-        </label>
-        <label>
-          Mot de passe
-          <input v-model="password" type="password" autocomplete="current-password" required />
-        </label>
-        <button class="primary-button" :disabled="busy">Se connecter</button>
-      </form>
+  <main id="main" :aria-busy="busy">
+    <p v-if="loading" class="loading" role="status">Préparation de votre espace…</p>
+    <section v-else-if="!authenticated" class="login-card">
+      <span class="eyebrow">BIENVENUE DANS VOTRE ATELIER</span><h1>Les bons gestes<br>commencent ici.</h1><p>Un espace pour essayer, comprendre et gagner en autonomie.</p>
+      <form @submit.prevent="signIn"><label for="username">Nom d’utilisateur</label><input id="username" v-model="username" autocomplete="username" required /><label for="password">Mot de passe</label><input id="password" v-model="password" type="password" autocomplete="current-password" required /><button class="primary-button" :disabled="busy">Se connecter <LabIcon name="arrow" :size="17" /></button></form>
     </section>
-
     <template v-else>
-      <section v-if="scenario && !attempt" class="intro-card">
-        <p class="eyebrow">Exercice pratique · {{ scenario.code }}</p>
-        <h1>{{ scenario.title }}</h1>
-        <ol>
-          <li v-for="instruction in scenario.instructions" :key="instruction">{{ instruction }}</li>
-        </ol>
-        <section v-if="savedAttempts.length" aria-labelledby="saved-title" class="saved-attempts">
-          <h2 id="saved-title">Vos exercices en cours</h2>
-          <p>Retrouvez vos fichiers sauvegardés et les indices déjà consultés.</p>
-          <ul>
-            <li v-for="saved in savedAttempts" :key="saved.id">
-              <button class="secondary-button" :disabled="busy" @click="resumeAttempt(saved.id)">
-                Reprendre · {{ new Date(saved.updated_at).toLocaleString('fr-FR') }}
-              </button>
-            </li>
-          </ul>
-        </section>
-        <button class="primary-button" :disabled="busy" @click="startAttempt">
-          {{ savedAttempts.length ? 'Commencer un nouvel exercice' : 'Commencer l’exercice' }}
-        </button>
+      <div class="page-heading"><div class="page-title"><span class="page-icon"><LabIcon name="folder" :size="30" /></span><div><p class="eyebrow">LES ESSENTIELS · FICHIERS & DOSSIERS</p><h1>L’explorateur de fichiers</h1><p>Organisez, renommez, déplacez. Apprenez en faisant.</p></div></div><div class="heading-actions"><span class="saved-label" role="status"><span class="status-dot"></span>{{ busy ? 'En cours…' : message || 'Progression sauvegardée' }}</span><button v-if="attempt" class="secondary-button" :disabled="busy || !!pendingEvent" @click="restartDialog?.showModal()"><LabIcon name="reset" :size="17" />Recommencer</button></div></div>
+      <nav class="mission-tabs" aria-label="Missions du parcours"><button v-for="mission in missions" :key="mission.code" :class="{ active: attempt?.scenario.code === mission.code, complete: mission.passed }" :aria-current="attempt?.scenario.code === mission.code ? 'step' : undefined" :disabled="busy || !!pendingEvent" @click="chooseMission(mission)"><span class="tab-number"><LabIcon v-if="mission.passed" name="check" :size="14" /><template v-else>{{ mission.order.toString().padStart(2, '0') }}</template></span><span>{{ mission.title }}</span></button><span class="course-progress">{{ completed }}/{{ missions.length }} missions réussies</span></nav>
+      <section v-if="!attempt" class="course-home">
+        <div class="home-intro"><span class="eyebrow">VOTRE PARCOURS</span><h2>Une place pour chaque fichier.</h2><p>Trois missions pour prendre vos repères. Vous pouvez vérifier votre travail et réessayer autant que nécessaire.</p><span class="points-pill">{{ totalPoints }} / {{ missions.length * 100 }} points</span></div>
+        <div class="mission-cards"><article v-for="mission in missions" :key="mission.code" class="mission-card"><div class="card-top"><span class="card-number">0{{ mission.order }}</span><span class="mission-tag">{{ mission.passed ? 'Réussie' : mission.resume_id ? 'En cours' : 'À découvrir' }}</span></div><LabIcon :name="mission.order === 1 ? 'folder' : mission.order === 2 ? 'rename' : 'desktop'" :size="35" /><h3>{{ mission.title }}</h3><p>{{ mission.instructions[0] }}</p><button class="secondary-button" :disabled="busy" @click="chooseMission(mission)">{{ mission.resume_id ? 'Reprendre' : mission.passed ? 'Rejouer' : 'Commencer' }}<LabIcon name="arrow" :size="16" /></button></article></div>
+        <p v-if="!missions.length">Aucune mission n’est disponible pour le moment.</p>
+        <section v-if="saved.length" class="saved-attempts"><h2>Retrouver un exercice en cours</h2><ul><li v-for="entry in saved" :key="entry.id"><span>{{ entry.title }}<small>{{ new Date(entry.updated_at).toLocaleString('fr-FR') }}</small></span><button class="text-button" :disabled="busy" @click="resume(entry.id)">Reprendre <LabIcon name="arrow" :size="15" /></button></li></ul></section>
       </section>
-
-      <section v-if="attempt" class="workspace" aria-labelledby="exercise-title">
-        <aside class="instructions">
-          <p class="eyebrow">Votre mission</p>
-          <h1 id="exercise-title">{{ attempt.scenario.title }}</h1>
-          <ol>
-            <li v-for="instruction in attempt.scenario.instructions" :key="instruction">{{ instruction }}</li>
-          </ol>
-          <div class="status-card">
-            <span>État</span>
-            <strong>{{ attempt.status === 'in_progress' ? 'En cours' : 'Terminée' }}</strong>
+      <div v-else class="workspace">
+        <div class="workspace-main"><FileExplorer :key="attempt.id" :attempt="attempt" :busy="busy" :perform="perform" :error="error" :pending="!!pendingEvent" :retry="sendPendingEvent" /><p class="keyboard-help"><kbd>Entrée</kbd> Ouvrir <span>·</span> <kbd>F2</kbd> Renommer <span>·</span> <kbd>Ctrl X</kbd> Couper <span>·</span> <kbd>Ctrl C</kbd> Copier <span>·</span> <kbd>Ctrl V</kbd> Coller <span class="keyboard-note">Vous pouvez aussi glisser-déposer vos fichiers.</span></p></div>
+        <aside class="mission-panel" aria-labelledby="mission-title">
+          <div class="mission-banner"><div><span class="level-pill">NIVEAU 1 · DÉCOUVERTE</span><span class="mission-points">{{ totalPoints }} pts</span></div><p class="mission-counter">{{ currentMission ? `MISSION ${currentMission.order} SUR ${missions.length}` : 'EXERCICE LIBRE' }}</p><h2 id="mission-title">{{ attempt.scenario.title }}</h2><div class="progress-track" role="progressbar" aria-label="Missions réussies" :aria-valuenow="completed" :aria-valuemin="0" :aria-valuemax="missions.length || 1"><span :style="{ width: `${completed / (missions.length || 1) * 100}%` }"></span></div></div>
+          <div class="mission-body"><div class="objective"><h3>À vous de jouer</h3><ol><li v-for="instruction in attempt.scenario.instructions" :key="instruction">{{ instruction }}</li></ol></div>
+            <div class="hint-panel"><div class="hint-heading"><LabIcon name="bulb" :size="19" /><strong>Un coup de pouce ?</strong><span>{{ attempt.hints.length }}/{{ attempt.hints_count }}</span></div><ol v-if="attempt.hints.length" aria-live="polite"><li v-for="hint in attempt.hints" :key="hint.level">{{ hint.text }}</li></ol><p v-else>Un indice pour avancer, sans perdre de points.</p><button class="text-button" :disabled="busy || !editable || attempt.hints.length >= attempt.hints_count || !!pendingEvent" @click="askHint">{{ attempt.hints.length >= attempt.hints_count ? 'Tous les indices sont affichés' : 'Afficher un indice' }}<LabIcon name="arrow" :size="14" /></button></div>
+            <section v-if="evaluation" ref="feedback" class="feedback" :class="{ success: evaluation.passed }" tabindex="-1" aria-live="polite"><h3><LabIcon :name="evaluation.passed ? 'check' : 'info'" :size="19" />{{ evaluation.passed ? editable ? 'Tout est à sa place !' : 'Mission réussie !' : editable ? 'Encore un petit effort' : 'Tentative terminée' }}</h3><p class="feedback-score">{{ evaluation.score }}<small>/100</small></p><p v-if="editable">{{ evaluation.passed ? 'Vous pouvez maintenant terminer cette mission.' : 'Votre exercice reste ouvert. Corrigez puis vérifiez à nouveau.' }}</p><ul v-if="!evaluation.passed"><li v-for="criterion in evaluation.criteria.filter(c => !c.passed)" :key="criterion.code">{{ criterion.feedback }}</li></ul></section>
+            <button v-if="editable" class="primary-button check-button" :disabled="busy || !!pendingEvent" @click="check"><LabIcon name="check" />Vérifier mon travail</button>
+            <button v-if="editable && evaluation?.passed" class="secondary-button finish-button" :disabled="busy || !!pendingEvent" @click="finish">Terminer la mission <LabIcon name="arrow" :size="17" /></button>
+            <button v-if="!editable && nextMission" class="primary-button check-button" :disabled="busy" @click="chooseMission(nextMission)">Mission suivante <LabIcon name="arrow" :size="17" /></button>
+            <p v-if="editable" class="reassurance">Essayez, vérifiez, recommencez.<br>Vous êtes ici pour apprendre.</p>
+            <button class="text-button home-link" :disabled="busy || !!pendingEvent" @click="home"><LabIcon name="back" :size="14" />Revenir au parcours</button>
           </div>
-          <button
-            class="primary-button"
-            :disabled="busy || attempt.status !== 'in_progress'"
-            @click="submitAttempt"
-          >
-            Valider mon travail
-          </button>
-          <section class="hint-panel" aria-labelledby="hint-title">
-            <h2 id="hint-title">Besoin d’aide ?</h2>
-            <p>{{ attempt.hints.length }} indice(s) consulté(s) sur {{ attempt.hints_count }}. Aucun point retiré.</p>
-            <ol aria-live="polite" aria-relevant="additions">
-              <li v-for="hint in attempt.hints" :key="hint.level">{{ hint.text }}</li>
-            </ol>
-            <button class="secondary-button" :disabled="busy || attempt.status !== 'in_progress' || attempt.hints.length >= attempt.hints_count" @click="askHint">
-              {{ attempt.hints.length >= attempt.hints_count ? 'Tous les indices sont affichés' : 'Afficher un indice' }}
-            </button>
-          </section>
-          <p>Chaque action confirmée est sauvegardée automatiquement.</p>
-          <button class="quiet-button" :disabled="busy" @click="returnToExercises">Revenir aux exercices</button>
         </aside>
-
-        <div class="file-manager">
-          <div class="window-bar">
-            <div>
-              <p class="window-title">Mes fichiers</p>
-              <p class="path">Accueil / {{ currentFolder?.name }}</p>
-            </div>
-            <button class="quiet-button" :disabled="!canGoUp" @click="goUp">Dossier parent</button>
-          </div>
-
-          <div class="action-panel" aria-label="Actions sur les fichiers">
-            <label>
-              Action
-              <select v-model="action">
-                <option value="folder">Nouveau dossier</option>
-                <option value="file">Nouveau fichier</option>
-                <option value="rename">Renommer la sélection</option>
-                <option value="move">Déplacer la sélection</option>
-              </select>
-            </label>
-            <label v-if="action !== 'move'">
-              {{ action === 'rename' ? 'Nouveau nom' : 'Nom' }}
-              <input v-model="value" :disabled="attempt.status !== 'in_progress'" />
-            </label>
-            <label v-else>
-              Destination
-              <select v-model="destinationId">
-                <option value="">Choisir un dossier</option>
-                <option v-for="folder in folders" :key="folder.id" :value="folder.id">
-                  {{ folder.name }}
-                </option>
-              </select>
-            </label>
-            <button
-              class="secondary-button"
-              :disabled="busy || attempt.status !== 'in_progress'"
-              @click="performAction"
-            >
-              Appliquer
-            </button>
-          </div>
-
-          <p class="selection" aria-live="polite">
-            {{ selectedItem ? `Sélection : ${selectedItem.name}` : 'Aucun élément sélectionné' }}
-          </p>
-
-          <div class="file-grid" role="list" aria-label="Contenu du dossier">
-            <button
-              v-for="item in children"
-              :key="item.id"
-              class="file-item"
-              :class="{ selected: selectedId === item.id }"
-              role="listitem"
-              @click="selectedId = item.id"
-              @dblclick="openItem(item)"
-              @keydown.enter="openItem(item)"
-            >
-              <span class="file-icon" aria-hidden="true">{{ item.kind === 'folder' ? '▰' : '▤' }}</span>
-              <span>{{ item.name }}</span>
-              <small>{{ item.kind === 'folder' ? 'Dossier' : 'Fichier texte' }}</small>
-            </button>
-            <p v-if="children.length === 0" class="empty-state">Ce dossier est vide.</p>
-          </div>
-        </div>
-      </section>
-
-      <section v-if="evaluation" class="result-card" aria-live="polite">
-        <p class="eyebrow">Résultat</p>
-        <h2>{{ evaluation.passed ? 'Exercice réussi' : 'Continuez vos efforts' }}</h2>
-        <p class="score">{{ evaluation.score }}<span>/100</span></p>
-        <ul>
-          <li v-for="criterion in evaluation.criteria" :key="criterion.code">
-            <strong>{{ criterion.passed ? 'Réussi' : 'À corriger' }}</strong>
-            — {{ criterion.points_awarded }}/{{ criterion.points_available }} points
-            <span v-if="criterion.feedback"> · {{ criterion.feedback }}</span>
-          </li>
-        </ul>
-        <button class="secondary-button" :disabled="busy" @click="returnToExercises">Revenir aux exercices</button>
-      </section>
+      </div>
     </template>
-
-    <p v-if="error" class="error-message" role="alert">{{ error }}</p>
+    <div v-if="error" class="error-message" role="alert"><strong>Impossible de terminer l’action</strong><p>{{ error }}</p><button v-if="pendingEvent" class="secondary-button" :disabled="busy" @click="sendPendingEvent">Réessayer l’action</button><button v-else class="text-button" @click="error = ''">Fermer</button></div>
+    <dialog ref="restartDialog" class="action-dialog" aria-labelledby="restart-title" @cancel="busy && $event.preventDefault()"><h2 id="restart-title">Recommencer cette mission ?</h2><p>Vous repartirez de l’état initial avec de nouveaux indices. Cette tentative restera dans votre historique.</p><p v-if="error" role="alert">{{ error }}</p><div class="dialog-actions"><button class="secondary-button" :disabled="busy" @click="restartDialog?.close()">Annuler</button><button class="primary-button" :disabled="busy" @click="restart">Recommencer</button></div></dialog>
   </main>
 </template>

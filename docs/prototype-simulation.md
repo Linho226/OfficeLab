@@ -468,8 +468,46 @@ par les tests API.
 
 ### Étapes suivantes
 
-1. Second scénario pour éprouver la réutilisation du moteur.
-2. Recette clavier, tests avec des débutants et décision Go/No-Go du Lot 0.
+1. Recette de l'explorateur interactif et compléments fichiers.
+2. Navigateur simulé pour éprouver la réutilisation du moteur.
+3. Messagerie simulée, puis missions transversales.
+
+Le périmètre, les compétences et la séparation entre implémentation et cible
+sont détaillés dans [le parcours fichiers → navigateur → messagerie](parcours-fichiers-navigateur-messagerie.md).
+Le Go/No-Go du Lot 0 reste lié aux preuves de la section 11 ; cette priorité de
+développement ne vaut pas validation du lot.
 
 L'annulation, les deux méthodes de déplacement et les autres critères de la
 section 11 restent à vérifier ou à implémenter avant d'annoncer le Lot 0 terminé.
+
+## 15. Explorateur interactif — 7 octobre 2026
+
+Une nouvelle interface Vue est implémentée avec barre latérale, fil d'Ariane,
+vignettes/liste, menu contextuel, boîtes de dialogue, propriétés, glisser-déposer
+et couper/coller. Les raccourcis Entrée, F2, Ctrl/Cmd+X, Ctrl/Cmd+V et Suppr sont
+câblés ; leur recette manuelle reste à faire.
+
+Trois nouveaux scénarios sont publiés par `seed_prototype` :
+
+- `FILES-101` : créer Formation/Cours et Formation/Exercices dans Documents ;
+- `FILES-102` : renommer les documents fournis ;
+- `FILES-103` : déplacer les fichiers du Bureau vers les dossiers adaptés.
+
+Les scénarios historiques `FILES-001` restent compatibles et leurs tentatives
+en cours sont accessibles dans la liste de reprise. Les nouvelles missions
+acceptent la suppression d'un fichier ou d'un dossier vide ; la corbeille et
+la copie restent à développer.
+
+`POST /api/v1/attempts/<id>/check/` évalue sans modifier le statut ni créer de
+note définitive. L'apprenant peut corriger puis vérifier à nouveau. La
+soumission reste distincte. `restart/` crée une nouvelle tentative et abandonne
+l'ancienne si elle était en cours, en conservant ses événements. Le catalogue
+et le score cumulé sont calculés pour le compte connecté ; rejouer ne multiplie
+pas les points de la même mission.
+
+Validation locale : **54 tests Django passent**, le build Vue/TypeScript réussit
+et aucune migration de schéma n'est requise. Les scénarios sont chargés dans la
+base locale. **La nouvelle interface n'a pas encore été testée dans Chrome** :
+le lancement du serveur a été empêché par un échec du contrôle d'autorisation
+automatique dû à une limite d'utilisation. Le test Chrome du 6 octobre, décrit
+plus haut, concerne l'ancienne interface.

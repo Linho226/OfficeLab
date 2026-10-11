@@ -4,10 +4,17 @@ from .exceptions import InvalidAction
 
 
 ACTION_FIELDS = {
+    "item.deleted": {"item_id"},
     "folder.created": {"item_id", "parent_id", "name"},
     "file.created": {"item_id", "parent_id", "name"},
     "item.renamed": {"item_id", "name"},
     "item.moved": {"item_id", "parent_id"},
+    "item.copied": {"item_id", "parent_id", "new_item_id"},
+    "item.trashed": {"item_id"},
+    "item.restored": {"item_id"},
+    "trash.emptied": set(),
+    "history.undo": set(),
+    "history.redo": set(),
 }
 
 

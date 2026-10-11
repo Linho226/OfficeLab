@@ -7,6 +7,7 @@ from django.utils import timezone
 
 from simulations.domain.scenario import parse_scenario
 from simulations.models import Scenario, ScenarioVersion
+from simulations.catalog import PROTOTYPE_FILES
 
 
 class Command(BaseCommand):
@@ -14,10 +15,14 @@ class Command(BaseCommand):
 
     @transaction.atomic
     def handle(self, *args, **options):
+        for filename in PROTOTYPE_FILES:
+            self.load_file(filename)
+
+    def load_file(self, filename):
         scenario_path = (
             Path(__file__).resolve().parents[2]
             / "scenarios"
-            / "files_001_v2.json"
+            / filename
         )
         definition = json.loads(scenario_path.read_text(encoding="utf-8"))
         parsed = parse_scenario(definition)

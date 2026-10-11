@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from copy import deepcopy
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 from .exceptions import InvalidAction
@@ -14,6 +14,7 @@ class SimulationState:
 
     root_id: str
     items: dict[str, dict[str, Any]]
+    trash: dict[str, dict[str, Any]] = field(default_factory=dict)
 
     @classmethod
     def from_initial_state(cls, initial_state: dict[str, Any]) -> "SimulationState":
@@ -21,10 +22,15 @@ class SimulationState:
         return cls(
             root_id=initial_state["root_id"],
             items={item["id"]: deepcopy(item) for item in initial_state["items"]},
+            trash=deepcopy(initial_state.get("trash", {})),
         )
 
     def clone(self) -> "SimulationState":
-        return SimulationState(self.root_id, deepcopy(self.items))
+        return SimulationState(
+            root_id=self.root_id,
+            items=deepcopy(self.items),
+            trash=deepcopy(self.trash),
+        )
 
     def children_of(self, parent_id: str) -> list[dict[str, Any]]:
         return [
